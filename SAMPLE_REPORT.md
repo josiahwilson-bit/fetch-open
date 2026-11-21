@@ -13,14 +13,16 @@ test_complete_listing ... ok
 test_fixtures_file ... ok
 test_input_is_not_modified ... ok
 test_invalid_deadline ... ok
+test_malformed_url_does_not_stop_batch ... ok
 test_missing_and_blank_fields ... ok
 test_missing_title_key_and_invalid_url ... ok
 test_source_confirmed_no_deadline ... ok
 test_source_confirmed_rolling_deadline ... ok
+test_url_without_hostname ... ok
 test_vague_deadline_spring ... ok
 
 ----------------------------------------------------------------------
-Ran 9 tests in 0.002s
+Ran 11 tests in 0.002s
 
 OK
 ```
