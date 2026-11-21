@@ -37,8 +37,15 @@ def _valid_url(value: Any) -> bool:
         return False
     if any(ch.isspace() for ch in value):
         return False
-    parsed = urlparse(value.strip())
-    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    try:
+        parsed = urlparse(value.strip())
+        hostname = parsed.hostname
+    except ValueError:
+        # Malformed URLs (e.g. an invalid IPv6 literal) make
+        # urlparse or the hostname accessor raise; treat them as
+        # invalid instead of letting the error stop the batch.
+        return False
+    return parsed.scheme in ("http", "https") and bool(hostname)
 
 
 def _parse_iso_date(value: str) -> str:

@@ -6,7 +6,13 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from completeness_checker import COMPLETE, NEEDS_REVIEW, check_listing, format_report
+from completeness_checker import (
+    COMPLETE,
+    NEEDS_REVIEW,
+    check_listing,
+    check_listings,
+    format_report,
+)
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "synthetic_listings.json"
 
@@ -42,6 +48,29 @@ class CompletenessCheckerTests(unittest.TestCase):
         self.assertIn("title", result["fields_needing_attention"])
         self.assertIn("source_url", result["fields_needing_attention"])
         self.assertNotIn("deadline", result["fields_needing_attention"])
+
+    def test_malformed_url_does_not_stop_batch(self):
+        # Regression: a malformed source_url (an invalid IPv6
+        # literal) placed before a valid listing must be flagged
+        # NEEDS_REVIEW naming source_url -- it must not raise and
+        # stop the batch -- and the valid listing still completes.
+        malformed = complete_listing()
+        malformed["title"] = "Synthetic Malformed URL Listing"
+        malformed["source_url"] = "http://[::1"
+        results = check_listings([malformed, complete_listing()])
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["status"], NEEDS_REVIEW)
+        self.assertIn("source_url", results[0]["fields_needing_attention"])
+        self.assertEqual(results[1]["status"], COMPLETE)
+
+    def test_url_without_hostname(self):
+        # A URL with a netloc but no hostname is not a valid
+        # source URL and must never return COMPLETE.
+        listing = complete_listing()
+        listing["source_url"] = "http://:8080/path"
+        result = check_listing(listing)
+        self.assertEqual(result["status"], NEEDS_REVIEW)
+        self.assertIn("source_url", result["fields_needing_attention"])
 
     def test_invalid_deadline(self):
         listing = complete_listing()
