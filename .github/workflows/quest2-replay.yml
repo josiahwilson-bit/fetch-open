@@ -27,7 +27,9 @@ jobs:
         run: |
           echo "f9ca11ae974454c4be858a35aa9adaf1dabf11cc363b5bc5790b3830e7809981  factory/source_backed_draft.py" | sha256sum -c -
           sha256sum factory/source_backed_draft.py | tee builder-sha256.txt
-
+      - name: Mark workspace as safe for git
+              run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+              
       - name: Run pinned Quest 2 replay
         run: |
           {
@@ -119,4 +121,4 @@ jobs:
             echo '```'
           } > comment.md
           cat comment.md
-          gh issue comment 3 --body-file comment.md
+          gh issue comment 3 --repo josiahwilson-bit/fetch-open --body-file comment.md
