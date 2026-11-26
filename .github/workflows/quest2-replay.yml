@@ -1,0 +1,122 @@
+name: Quest 2 replay (container)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-slim
+    steps:
+      - name: Install git and GitHub CLI
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git gh
+
+      - name: Check out repo at pinned commit
+        uses: actions/checkout@v4
+        with:
+          ref: d2dc6cca35747be8e733f2c206dcd8f1c8290dc4
+
+      - name: Verify builder SHA-256
+        run: |
+          echo "f9ca11ae974454c4be858a35aa9adaf1dabf11cc363b5bc5790b3830e7809981  factory/source_backed_draft.py" | sha256sum -c -
+          sha256sum factory/source_backed_draft.py | tee builder-sha256.txt
+
+      - name: Run pinned Quest 2 replay
+        run: |
+          {
+          set -eu
+          replay_dir=$(mktemp -d)
+          git show d2dc6cca35747be8e733f2c206dcd8f1c8290dc4:factory/source_backed_draft.py > "$replay_dir/source_backed_draft.py"
+          cd "$replay_dir"
+          python3 -I -S -B - <<'PY'
+          from copy import deepcopy
+          from hashlib import sha256
+          from pathlib import Path
+          import sys
+
+          path = Path("source_backed_draft.py")
+          expected = "f9ca11ae974454c4be858a35aa9adaf1dabf11cc363b5bc5790b3830e7809981"
+          assert sha256(path.read_bytes()).hexdigest() == expected, "Draft-builder checksum mismatch"
+          sys.path.insert(0, str(path.resolve().parent))
+          from source_backed_draft import CONFLICT, MISSING, build_drafts
+
+          def claim(value, source):
+              return {"value": value, "source": source}
+
+          subjects = [
+            {
+              "subject_id": "maple", "title": "Maple Court Unit 4",
+              "required_fields": ["address", "monthly_amount", "parking_fee"],
+              "fields": {
+                  "address": [claim("12 Fictional Lane", "A")],
+                  "monthly_amount": [claim(1850, "A")],
+              },
+            },
+            {
+              "subject_id": "harbor", "title": "Harbor View Unit 9",
+              "required_fields": ["address", "monthly_amount"],
+              "fields": {
+                  "address": [claim("99 Example Street", "B")],
+                  "monthly_amount": [claim(1925, "B"), claim(1800, "C")],
+              },
+            },
+          ]
+          original = deepcopy(subjects)
+          maple, harbor = build_drafts(subjects)
+          line = lambda draft, name: next(item for item in draft["lines"] if item["field"] == name)
+          parking = line(maple, "parking_fee")
+          assert parking["status"] == MISSING and parking["value"] is None and parking["text"] == ""
+          assert parking["evidence"] == []
+          print("PASS: parking fee stays blank and is flagged MISSING")
+          rent = line(harbor, "monthly_amount")
+          assert rent["status"] == CONFLICT and rent["value"] is None and rent["text"] == ""
+          assert [(item["value"], item["source"]) for item in rent["evidence"]] == [(1925, "B"), (1800, "C")]
+          print("PASS: rent stays blank; both conflicting values retain their sources")
+          for subject, draft in zip(subjects, (maple, harbor)):
+              for field in draft["lines"]:
+                  supplied = subject["fields"].get(field["field"], [])
+                  assert [(item["value"], item["source"]) for item in field["evidence"]] == [
+                      (item["value"], item["source"]) for item in supplied
+                  ], f"Evidence differs from source for {draft['subject_id']}: {field['field']}"
+          print("PASS: every evidence entry matches the same record and field")
+          assert subjects == original
+          assert all(draft["simulation_only"] and draft["authorizes"] is False for draft in (maple, harbor))
+          assert build_drafts(subjects) == [maple, harbor]
+          print("PASS: inputs unchanged, replay deterministic, and output simulation-only")
+          for draft in (maple, harbor):
+              print(f"{draft['subject_id']} draft SHA-256: {draft['version_hash']}")
+          PY
+          } 2>&1 | tee replay-output.txt
+
+      - name: Post results to issue #3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Quest 2 replay — GitHub Actions (container)"
+            echo ""
+            echo "This is a machine run of the pinned replay from issue #3 (comment 7116173532), not a volunteer's independent review."
+            echo ""
+            echo "Pinned commit: d2dc6cca35747be8e733f2c206dcd8f1c8290dc4"
+            echo ""
+            echo "Builder SHA-256 verification:"
+            echo ""
+            echo '```'
+            cat builder-sha256.txt
+            echo '```'
+            echo ""
+            echo "Replay output:"
+            echo ""
+            echo '```'
+            cat replay-output.txt
+            echo '```'
+          } > comment.md
+          cat comment.md
+          gh issue comment 3 --body-file comment.md
